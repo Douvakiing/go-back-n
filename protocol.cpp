@@ -13,7 +13,7 @@ using namespace std;
 
 typedef unsigned int seq_nr;
 typedef enum { data_frame, ack_frame, nak_frame } frame_kind;
-enum ProtocolMode { GO_BACK_N, SELECTIVE_REPEAT };
+enum ProtocolMode { GO_BACK_N, BUFFERED_PROTOCOL_5 };
 
 struct frame {
     frame_kind kind;
@@ -79,7 +79,7 @@ public:
         receiver_buffer.resize(MAX_SEQ + 1, false);
         nak_sent.resize(MAX_SEQ + 1, false);
 
-        // Drop packets 6 and 7
+        // Drop packets 
         packets_to_drop = {2}; 
     }
 
@@ -123,7 +123,7 @@ public:
     }
 
     void run() {
-        string mode_str = (mode == SELECTIVE_REPEAT) ? "WITH BUFFER & NAKs (Selective Repeat)" : "NO BUFFER (Go-Back-N)";
+        string mode_str = (mode == BUFFERED_PROTOCOL_5) ? "WITH BUFFER & NAKs " : "NO BUFFER (Go-Back-N)";
         cout << "\n=== STARTING SIMULATION: " << mode_str << " ===\n";
         cout << left << setw(10) << "Sender Window (N="<<(WINDOW_SIZE)<<")" 
              << right << setw(MAX_SEQ*3) << "Sender" << " "
@@ -178,11 +178,11 @@ public:
                         if (ev.f.seq == frame_expected) {
                             string r_act = "rcv pkt" + to_string(ev.f.seq) + ", deliver";
                             
-                            if (mode == SELECTIVE_REPEAT) nak_sent[frame_expected] = false; 
+                            if (mode == BUFFERED_PROTOCOL_5) nak_sent[frame_expected] = false; 
                             inc(frame_expected);
                             packets_delivered++;
                             
-                            if (mode == SELECTIVE_REPEAT) {
+                            if (mode == BUFFERED_PROTOCOL_5) {
                                 while (receiver_buffer[frame_expected]) {
                                     receiver_buffer[frame_expected] = false;
                                     nak_sent[frame_expected] = false; 
@@ -200,7 +200,7 @@ public:
                             print_event("", "---------->", r_act);
                             
                         } else {
-                            if (mode == SELECTIVE_REPEAT && between(frame_expected, ev.f.seq, (frame_expected + WINDOW_SIZE) % (MAX_SEQ + 1))) {
+                            if (mode == BUFFERED_PROTOCOL_5 && between(frame_expected, ev.f.seq, (frame_expected + WINDOW_SIZE) % (MAX_SEQ + 1))) {
                                 receiver_buffer[ev.f.seq] = true; 
                                 string r_act = "rcv pkt" + to_string(ev.f.seq) + ", BUFFER";
                                 
@@ -242,7 +242,7 @@ public:
                             } else {
                                 print_event("ignore dup ack" + to_string(ev.f.ack), "<----------", "");
                             }
-                        } else if (ev.f.kind == nak_frame && mode == SELECTIVE_REPEAT) {
+                        } else if (ev.f.kind == nak_frame && mode == BUFFERED_PROTOCOL_5) {
                             if (between(ack_expected, ev.f.ack, seq_next_frame)) {
                                 print_event("rcv NAK" + to_string(ev.f.ack), "<----------", "");
                                 
@@ -274,7 +274,7 @@ int main() {
     NetworkSimulator gbn(GO_BACK_N);
     gbn.run();
 
-    NetworkSimulator sr(SELECTIVE_REPEAT);
+    NetworkSimulator sr(BUFFERED_PROTOCOL_5);
     sr.run();
 
     return 0;
