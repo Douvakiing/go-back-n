@@ -9,6 +9,7 @@ using namespace std;
 
 #define MAX_SEQ 7
 #define TIMEOUT_TICKS 10 
+#define WINDOW_SIZE 6
 
 typedef unsigned int seq_nr;
 typedef enum { data_frame, ack_frame, nak_frame } frame_kind;
@@ -65,7 +66,7 @@ public:
     NetworkSimulator(ProtocolMode m) : mode(m) {
         tick = 0;
         max_ticks = 150;            
-        max_packets_to_send = 10;   
+        max_packets_to_send = MAX_SEQ*1.5;  // roughly to loop completely 
         packets_delivered = 0;
 
         next_frame_to_send = 0;
@@ -87,7 +88,7 @@ public:
         for (int i = 0; i <= MAX_SEQ; i++) {
             if (i == ack_expected) w += "[";
             w += to_string(i);
-            if (i == (ack_expected + 4 - 1) % (MAX_SEQ + 1)) w += "]"; 
+            if (i == (ack_expected + WINDOW_SIZE - 1) % (MAX_SEQ + 1)) w += "]"; // WINDOWSIZE
             w += " ";
         }
         return w;
@@ -103,9 +104,9 @@ public:
     void run() {
         string mode_str = (mode == SELECTIVE_REPEAT) ? "WITH BUFFER & NAKs (Selective Repeat)" : "NO BUFFER (Go-Back-N)";
         cout << "\n=== STARTING SIMULATION: " << mode_str << " ===\n";
-        cout << left << setw(20) << "Sender Window (N=4)" 
-             << right << setw(22) << "Sender" << " "
-             << setw(12) << "Channel" << " "
+        cout << left << setw(10) << "Sender Window (N="<<(WINDOW_SIZE)<<")" 
+             << right << setw(MAX_SEQ*3) << "Sender" << " "
+             << setw(25) << "Channel" << " "
              << left << "Receiver" << endl;
         cout << string(95, '-') << endl;
 
