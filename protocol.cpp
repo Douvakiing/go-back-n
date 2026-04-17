@@ -66,7 +66,7 @@ public:
     NetworkSimulator(ProtocolMode m) : mode(m) {
         tick = 0;
         max_ticks = 150;            
-        max_packets_to_send = MAX_SEQ*1.5;  // roughly to loop completely 
+        max_packets_to_send = MAX_SEQ * 1.5;  // roughly to loop completely 
         packets_delivered = 0;
 
         next_frame_to_send = 0;
@@ -79,8 +79,8 @@ public:
         receiver_buffer.resize(MAX_SEQ + 1, false);
         nak_sent.resize(MAX_SEQ + 1, false);
 
-        // Drop packets 2 and 5
-        packets_to_drop = {2, 6}; 
+        // Drop packets 6 and 7
+        packets_to_drop = {2}; 
     }
 
     string get_sender_window_str() {
@@ -101,6 +101,27 @@ public:
              << left << receiver_action << endl;
     }
 
+    // NEW HELPER: We moved the send logic here so we can call it anytime!
+    void send_new_packets(vector<ChannelEvent>& target_channel) {
+        while (nbuffered < WINDOW_SIZE && next_frame_to_send < max_packets_to_send) {
+            seq_nr seq_to_send = next_frame_to_send % (MAX_SEQ + 1);
+            out_buffer[seq_to_send] = "pkt" + to_string(seq_to_send);
+            frame s = {data_frame, seq_to_send, 0, out_buffer[seq_to_send]};
+            
+            if (packets_to_drop.count(next_frame_to_send)) {
+                print_event("send pkt" + to_string(seq_to_send), "--X (LOSS)", "");
+                packets_to_drop.erase(next_frame_to_send); 
+            } else {
+                target_channel.push_back({tick + 2, s, true}); 
+                print_event("send pkt" + to_string(seq_to_send), "---------->", "");
+            }
+            
+            timers[seq_to_send] = TIMEOUT_TICKS; 
+            next_frame_to_send++;
+            nbuffered++;
+        }
+    }
+
     void run() {
         string mode_str = (mode == SELECTIVE_REPEAT) ? "WITH BUFFER & NAKs (Selective Repeat)" : "NO BUFFER (Go-Back-N)";
         cout << "\n=== STARTING SIMULATION: " << mode_str << " ===\n";
@@ -113,41 +134,20 @@ public:
         while (packets_delivered < max_packets_to_send && tick < max_ticks) {
             bool action_taken = false;
 
-            // 1. SENDER: Inject new packets
-            while (nbuffered < 4 && next_frame_to_send < max_packets_to_send) {
-                seq_nr seq_to_send = next_frame_to_send % (MAX_SEQ + 1);
-                out_buffer[seq_to_send] = "pkt" + to_string(seq_to_send);
-                frame s = {data_frame, seq_to_send, 0, out_buffer[seq_to_send]};
-                
-                if (packets_to_drop.count(next_frame_to_send)) {
-                    // FIX 1: Print wrapped seq_to_send instead of next_frame_to_send
-                    print_event("send pkt" + to_string(seq_to_send), "--X (LOSS)", "");
-                    packets_to_drop.erase(next_frame_to_send); 
-                } else {
-                    channel.push_back({tick + 2, s, true}); 
-                    print_event("send pkt" + to_string(seq_to_send), "---------->", "");
-                }
-                
-                timers[seq_to_send] = TIMEOUT_TICKS; 
-                next_frame_to_send++;
-                nbuffered++;
-                action_taken = true;
-            }
+            // 1. SENDER: Fill the initial window at the start of a tick
+            send_new_packets(channel);
 
             // 2. TIMERS: Handle Timeouts
-            // First, decrement all active timers
             for (int i = 0; i <= MAX_SEQ; i++) {
                 if (timers[i] > 0) timers[i]--;
             }
 
-            // FIX 2: Check for timeouts in window order (starting from ack_expected)
             seq_nr check_seq = ack_expected;
             for (int i = 0; i < nbuffered; i++) {
                 if (timers[check_seq] == 0) {
                     print_event("TIMEOUT pkt" + to_string(check_seq), "", "");
                     
                     if (mode == GO_BACK_N) {
-                        // Go-Back-N: Resend ALL unacknowledged packets
                         seq_nr temp = ack_expected;
                         for (int j = 0; j < nbuffered; j++) {
                             frame s = {data_frame, temp, 0, out_buffer[temp]};
@@ -157,9 +157,8 @@ public:
                             inc(temp);
                         }
                         action_taken = true;
-                        break; // All timers just got reset, break the loop
+                        break; 
                     } else {
-                        // Selective Repeat: Resend ONLY the timed-out packet
                         frame s = {data_frame, check_seq, 0, out_buffer[check_seq]};
                         channel.push_back({tick + 2, s, true});
                         print_event("re-send pkt" + to_string(check_seq), "---------->", "");
@@ -201,7 +200,7 @@ public:
                             print_event("", "---------->", r_act);
                             
                         } else {
-                            if (mode == SELECTIVE_REPEAT && between(frame_expected, ev.f.seq, (frame_expected + 4) % (MAX_SEQ + 1))) {
+                            if (mode == SELECTIVE_REPEAT && between(frame_expected, ev.f.seq, (frame_expected + WINDOW_SIZE) % (MAX_SEQ + 1))) {
                                 receiver_buffer[ev.f.seq] = true; 
                                 string r_act = "rcv pkt" + to_string(ev.f.seq) + ", BUFFER";
                                 
@@ -236,6 +235,10 @@ public:
                                     inc(ack_expected);
                                 }
                                 print_event("rcv ack" + to_string(ev.f.ack), "<----------", "");
+                                
+                                // NEW: As soon as an ACK slides the window, trigger a send instantly!
+                                send_new_packets(next_channel);
+                                
                             } else {
                                 print_event("ignore dup ack" + to_string(ev.f.ack), "<----------", "");
                             }
