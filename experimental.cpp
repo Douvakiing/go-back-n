@@ -135,6 +135,7 @@ public:
     void run() {
         string mode_str = (mode == BUFFERED_PROTOCOL_5) ? "WITH BUFFER & NAKs " : "NO BUFFER (Go-Back-N)";
         cout << "\n=== STARTING SIMULATION: " << mode_str << " ===\n";
+        cout << "Timeout: " << ((mode == GO_BACK_N) ? TIMEOUT_TICKS_GBN : TIMEOUT_TICKS_SR) << " ticks\n";
         cout << left << setw(11) << "Time" 
              << left << setw(18) << "Sender Window (N="<<(WINDOW_SIZE)<<")" 
              << right << setw(23) << "Sender" << " "
