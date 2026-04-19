@@ -12,8 +12,8 @@ using namespace std;
 // ==============================================================================
 #define MAX_SEQ 7
 #define WINDOW_SIZE 4 
-#define TIMEOUT_TICKS_GBN 6  
-#define TIMEOUT_TICKS_SR 10  
+#define TIMEOUT_TICKS_NO_BUFFER 6  
+#define TIMEOUT_TICKS_BUFFER 11  
 #define PROPAGATION_DELAY 2
 
 typedef unsigned int seq_nr;
@@ -48,8 +48,8 @@ void inc(seq_nr &k) {
 class NetworkLogger {
 public:
     static void print_header(ProtocolMode mode) {
-        string mode_str = (mode == BUFFERED_PROTOCOL_5) ? "WITH BUFFER & NAKs (Selective Repeat)" : "NO BUFFER (Go-Back-N)";
-        int timeout = (mode == GO_BACK_N) ? TIMEOUT_TICKS_GBN : TIMEOUT_TICKS_SR;
+        string mode_str = (mode == BUFFERED_PROTOCOL_5) ? "Go-Back-N ( WITH BUFFER & NAKs)" : "Go-Back-N  (NO BUFFER)";
+        int timeout = (mode == GO_BACK_N) ? TIMEOUT_TICKS_NO_BUFFER : TIMEOUT_TICKS_BUFFER;
         
         cout << "\n=== STARTING SIMULATION: " << mode_str << " ===\n";
         cout << "Timeout: " << timeout << " ticks\n";
@@ -65,7 +65,7 @@ public:
     static void print_event(int tick, string window, int delivered, string sender_act, string arrow, string receiver_act) {
         cout << left << "Tick: " << setw(3) << tick << "| " 
              << left << setw(18) << window 
-             << left << setw(10) << ("D:" + to_string(delivered))
+             << left << setw(10) << ("| D:" + to_string(delivered))
              << right << setw(20) << sender_act << " "
              << setw(12) << arrow << " "
              << left << receiver_act << endl;
@@ -191,7 +191,7 @@ private:
 
 public:
     Sender(ProtocolMode m) : mode(m), next_frame_to_send(0), ack_expected(0), nbuffered(0) {
-        timeout_limit = (mode == GO_BACK_N) ? TIMEOUT_TICKS_GBN : TIMEOUT_TICKS_SR;
+        timeout_limit = (mode == GO_BACK_N) ? TIMEOUT_TICKS_NO_BUFFER : TIMEOUT_TICKS_BUFFER;
         timers.resize(MAX_SEQ + 1, -1);
         out_buffer.resize((MAX_SEQ * 2) + MAX_SEQ, "");
     }
@@ -334,8 +334,8 @@ private:
 
 public:
     Simulator(ProtocolMode m) 
-        : mode(m), tick(0), max_ticks(150), max_packets_to_send(MAX_SEQ * 2), 
-          sender(m), receiver(m), channel({2}) {} // Channel instantiated with drop at packet 2
+        : mode(m), tick(0), max_ticks(150), max_packets_to_send(10), 
+          sender(m), receiver(m), channel({2,4}) {} // Channel instantiated with drop at packet 2
 
     void run() {
         NetworkLogger::print_header(mode);
