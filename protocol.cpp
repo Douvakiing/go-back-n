@@ -9,7 +9,7 @@ using namespace std;
 
 #define MAX_SEQ 7
 #define TIMEOUT_TICKS 10 
-#define WINDOW_SIZE 6
+#define WINDOW_SIZE 4
 
 typedef unsigned int seq_nr;
 typedef enum { data_frame, ack_frame, nak_frame } frame_kind;
@@ -103,24 +103,24 @@ public:
 
     // NEW HELPER: We moved the send logic here so we can call it anytime!
     void send_new_packets(vector<ChannelEvent>& target_channel) {
-        while (nbuffered < WINDOW_SIZE && next_frame_to_send < max_packets_to_send) {
-            seq_nr seq_to_send = next_frame_to_send % (MAX_SEQ + 1);
-            out_buffer[seq_to_send] = "pkt" + to_string(seq_to_send);
-            frame s = {data_frame, seq_to_send, 0, out_buffer[seq_to_send]};
-            
-            if (packets_to_drop.count(next_frame_to_send)) {
-                print_event("send pkt" + to_string(seq_to_send), "--X (LOSS)", "");
-                packets_to_drop.erase(next_frame_to_send); 
-            } else {
-                target_channel.push_back({tick + 2, s, true}); 
-                print_event("send pkt" + to_string(seq_to_send), "---------->", "");
-            }
-            
-            timers[seq_to_send] = TIMEOUT_TICKS; 
-            next_frame_to_send++;
-            nbuffered++;
+    if (nbuffered < WINDOW_SIZE && next_frame_to_send < max_packets_to_send) {
+        seq_nr seq_to_send = next_frame_to_send % (MAX_SEQ + 1);
+        out_buffer[seq_to_send] = "pkt" + to_string(seq_to_send);
+        frame s = {data_frame, seq_to_send, 0, out_buffer[seq_to_send]};
+        
+        if (packets_to_drop.count(next_frame_to_send)) {
+            print_event("send pkt" + to_string(seq_to_send), "--X (LOSS)", "");
+            packets_to_drop.erase(next_frame_to_send); 
+        } else {
+            target_channel.push_back({tick + 2, s, true}); 
+            print_event("send pkt" + to_string(seq_to_send), "---------->", "");
         }
+        
+        timers[seq_to_send] = TIMEOUT_TICKS; 
+        next_frame_to_send++;
+        nbuffered++;
     }
+}
 
     void run() {
         string mode_str = (mode == BUFFERED_PROTOCOL_5) ? "WITH BUFFER & NAKs " : "NO BUFFER (Go-Back-N)";
