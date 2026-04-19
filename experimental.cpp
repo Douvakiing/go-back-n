@@ -10,7 +10,7 @@ using namespace std;
 #define MAX_SEQ 7
 #define WINDOW_SIZE 4 
 
-// NEW: Independent timeout definitions for each protocol
+// Independent timeout definitions for each protocol
 #define TIMEOUT_TICKS_GBN 6  // Tight timeout: survives via global window retransmissions
 #define TIMEOUT_TICKS_SR 10  // Safe timeout: wide enough to allow NAK recovery cycle
 
@@ -48,7 +48,7 @@ private:
     int max_ticks; 
     int max_packets_to_send; 
     int packets_delivered;
-    int timeout_ticks; // NEW: Instance variable for the active timeout
+    int timeout_ticks; 
 
     // Sender State
     seq_nr next_frame_to_send;
@@ -56,7 +56,7 @@ private:
     int nbuffered;
     vector<int> timers;
     vector<string> out_buffer;
-    vector<frame> gbn_retransmit_queue; // Simulates physical transmission queue
+    vector<frame> gbn_retransmit_queue; 
 
     // Receiver State
     seq_nr frame_expected;
@@ -74,7 +74,6 @@ public:
         max_packets_to_send = MAX_SEQ * 2;  
         packets_delivered = 0;
 
-        // Assign the appropriate timeout based on the mode
         timeout_ticks = (mode == GO_BACK_N) ? TIMEOUT_TICKS_GBN : TIMEOUT_TICKS_SR;
 
         next_frame_to_send = 0;
@@ -87,7 +86,7 @@ public:
         receiver_buffer.resize(MAX_SEQ + 1, false);
         nak_sent.resize(MAX_SEQ + 1, false);
 
-        // Intentionally drop packet 2 to test error recovery
+        // Intentionally drop packet(s) to test error recovery
         packets_to_drop = {2}; 
     }
 
@@ -105,12 +104,12 @@ public:
     void print_event(string sender_action, string arrow, string receiver_action) {
         cout << left << "Tick: " << setw(3) << tick << "| " 
              << left << setw(18) << get_sender_window_str() 
-             << right << setw(22) << sender_action << " "
+             << left << setw(10) << ("| D:" + to_string(packets_delivered)) 
+             << right << setw(20) << sender_action << " "
              << setw(12) << arrow << " "
              << left << receiver_action << endl;
     }
 
-    // Sends exactly one new packet if the sender NIC is not busy
     void send_new_packets(vector<ChannelEvent>& target_channel, bool& sent_this_tick) {
         if (!sent_this_tick && nbuffered < WINDOW_SIZE && next_frame_to_send < max_packets_to_send) {
             seq_nr seq_to_send = next_frame_to_send % (MAX_SEQ + 1);
@@ -125,10 +124,10 @@ public:
                 print_event("send pkt" + to_string(seq_to_send), "---------->", "");
             }
             
-            timers[seq_to_send] = timeout_ticks; // Uses the dynamic timeout
+            timers[seq_to_send] = timeout_ticks; 
             next_frame_to_send++;
             nbuffered++;
-            sent_this_tick = true; // Lock the sender for the rest of this tick
+            sent_this_tick = true; 
         }
     }
 
@@ -136,22 +135,24 @@ public:
         string mode_str = (mode == BUFFERED_PROTOCOL_5) ? "WITH BUFFER & NAKs " : "NO BUFFER (Go-Back-N)";
         cout << "\n=== STARTING SIMULATION: " << mode_str << " ===\n";
         cout << "Timeout: " << ((mode == GO_BACK_N) ? TIMEOUT_TICKS_GBN : TIMEOUT_TICKS_SR) << " ticks\n";
+        
         cout << left << setw(11) << "Time" 
-             << left << setw(18) << "Sender Window (N="<<(WINDOW_SIZE)<<")" 
-             << right << setw(23) << "Sender" << " "
+             << left << setw(18) << "Sender Window" 
+             << left << setw(8) << "  Delivered" 
+             << right << setw(20) << "Sender" << "   "
              << setw(12) << "Channel" << " "
              << left << "Receiver" << endl;
-        cout << string(105, '-') << endl;
+        cout << string(115, '-') << endl;
 
         while (packets_delivered < max_packets_to_send && tick < max_ticks) {
-            bool packet_sent_this_tick = false; // Lock variable simulating 1 packet/tick bandwidth limit
+            bool packet_sent_this_tick = false; 
 
-            // 1. TIMERS FIRST: Decrease all active timers to prevent the "Off-By-One" robbery bug
+            // 1. TIMERS FIRST
             for (int i = 0; i <= MAX_SEQ; i++) {
                 if (timers[i] > 0) timers[i]--;
             }
 
-            // 2. CHANNEL DELIVERY: Process Arrivals (Race condition fix: ACKs are processed before Timeouts)
+            // 2. CHANNEL DELIVERY
             vector<ChannelEvent> next_channel;
             for (auto& ev : channel) {
                 if (ev.delivery_tick == tick) {
@@ -213,9 +214,8 @@ public:
                             if (between(ack_expected, ev.f.ack, seq_next_frame)) {
                                 while (between(ack_expected, ev.f.ack, seq_next_frame)) {
                                     nbuffered--;
-                                    timers[ack_expected] = -1; // Turn off timer BEFORE the timeout check!
+                                    timers[ack_expected] = -1; 
                                     
-                                    // Remove safely from the GBN queue if it was buffered for retransmission
                                     gbn_retransmit_queue.erase(
                                         remove_if(gbn_retransmit_queue.begin(), gbn_retransmit_queue.end(),
                                             [this](const frame& f) { return f.seq == ack_expected; }),
@@ -234,10 +234,9 @@ public:
                                     frame s = {data_frame, ev.f.ack, 0, out_buffer[ev.f.ack]};
                                     next_channel.push_back({tick + 2, s, true});
                                     print_event("FAST re-send pkt" + to_string(ev.f.ack), "---------->", "");
-                                    timers[ev.f.ack] = timeout_ticks; // Uses the dynamic timeout
+                                    timers[ev.f.ack] = timeout_ticks; 
                                     packet_sent_this_tick = true;
                                 } else {
-                                    // Sender interface is busy! Defer NAK processing to the next tick
                                     ev.delivery_tick++;
                                     next_channel.push_back(ev);
                                 }
@@ -250,7 +249,7 @@ public:
             }
             channel = next_channel;
 
-            // 3. TIMEOUT CHECKS: Execute only if an ACK didn't save them in Step 2
+            // 3. TIMEOUT CHECKS
             seq_nr check_seq = ack_expected;
             for (int i = 0; i < nbuffered; i++) {
                 if (timers[check_seq] == 0) {
@@ -261,12 +260,11 @@ public:
                         for (int j = 0; j < nbuffered; j++) {
                             frame s = {data_frame, temp, 0, out_buffer[temp]};
                             
-                            // Queue for transmission (prevents dumping whole window instantly)
                             auto it = find_if(gbn_retransmit_queue.begin(), gbn_retransmit_queue.end(),
                                             [&](const frame& f) { return f.seq == s.seq; });
                             if(it == gbn_retransmit_queue.end()) gbn_retransmit_queue.push_back(s); 
                             
-                            timers[temp] = -1; // Timer stays off while waiting in queue
+                            timers[temp] = -1; 
                             inc(temp);
                         }
                         break; 
@@ -275,17 +273,15 @@ public:
                             frame s = {data_frame, check_seq, 0, out_buffer[check_seq]};
                             channel.push_back({tick + 2, s, true});
                             print_event("re-send pkt" + to_string(check_seq), "---------->", "");
-                            timers[check_seq] = timeout_ticks; // Uses the dynamic timeout
+                            timers[check_seq] = timeout_ticks; 
                             packet_sent_this_tick = true;
-                        } else {
-                            // Leave timer at 0 to re-attempt sending next tick
-                        }
+                        } 
                     }
                 }
                 inc(check_seq);
             }
 
-            // 4. TRANSMISSION QUEUE: Drain pending Go-Back-N retransmissions (max 1 per tick)
+            // 4. TRANSMISSION QUEUE (GBN)
             while (!gbn_retransmit_queue.empty()) {
                 frame s = gbn_retransmit_queue.front();
                 seq_nr seq_next_frame = next_frame_to_send % (MAX_SEQ + 1);
@@ -295,30 +291,29 @@ public:
                         gbn_retransmit_queue.erase(gbn_retransmit_queue.begin());
                         channel.push_back({tick + 2, s, true});
                         print_event("re-send pkt" + to_string(s.seq), "---------->", "");
-                        timers[s.seq] = timeout_ticks; // Start the fresh timer NOW as it hits the wire
+                        timers[s.seq] = timeout_ticks; 
                         packet_sent_this_tick = true;
                         break; 
                     } else {
-                        break; // Sender is busy, wait for next tick
+                        break; 
                     }
                 } else {
-                    // Packet was somehow already ACKed, remove it from queue
                     gbn_retransmit_queue.erase(gbn_retransmit_queue.begin());
                 }
             }
 
-            // 5. NEW PACKETS: Only send if the network card is completely free
+            // 5. NEW PACKETS
             if (gbn_retransmit_queue.empty()) {
                 send_new_packets(channel, packet_sent_this_tick);
             }
 
-            tick++; // Advance physical time
+            tick++; 
         }
         
         if (tick >= max_ticks) {
             cout << "\n[!] SIMULATION ENDED: Reached max tick limit (" << max_ticks << ")." << endl;
         }
-        cout << string(105, '-') << "\n\n";
+        cout << string(115, '-') << "\n\n";
     }
 };
 
