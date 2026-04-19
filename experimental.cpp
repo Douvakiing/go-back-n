@@ -8,8 +8,11 @@
 using namespace std;
 
 #define MAX_SEQ 7
-#define TIMEOUT_TICKS 10 
 #define WINDOW_SIZE 4 
+
+// NEW: Independent timeout definitions for each protocol
+#define TIMEOUT_TICKS_GBN 6  // Tight timeout: survives via global window retransmissions
+#define TIMEOUT_TICKS_SR 10  // Safe timeout: wide enough to allow NAK recovery cycle
 
 typedef unsigned int seq_nr;
 typedef enum { data_frame, ack_frame, nak_frame } frame_kind;
@@ -45,6 +48,7 @@ private:
     int max_ticks; 
     int max_packets_to_send; 
     int packets_delivered;
+    int timeout_ticks; // NEW: Instance variable for the active timeout
 
     // Sender State
     seq_nr next_frame_to_send;
@@ -69,6 +73,9 @@ public:
         max_ticks = 150;            
         max_packets_to_send = MAX_SEQ * 2;  
         packets_delivered = 0;
+
+        // Assign the appropriate timeout based on the mode
+        timeout_ticks = (mode == GO_BACK_N) ? TIMEOUT_TICKS_GBN : TIMEOUT_TICKS_SR;
 
         next_frame_to_send = 0;
         ack_expected = 0;
@@ -118,7 +125,7 @@ public:
                 print_event("send pkt" + to_string(seq_to_send), "---------->", "");
             }
             
-            timers[seq_to_send] = TIMEOUT_TICKS; 
+            timers[seq_to_send] = timeout_ticks; // Uses the dynamic timeout
             next_frame_to_send++;
             nbuffered++;
             sent_this_tick = true; // Lock the sender for the rest of this tick
@@ -226,7 +233,7 @@ public:
                                     frame s = {data_frame, ev.f.ack, 0, out_buffer[ev.f.ack]};
                                     next_channel.push_back({tick + 2, s, true});
                                     print_event("FAST re-send pkt" + to_string(ev.f.ack), "---------->", "");
-                                    timers[ev.f.ack] = TIMEOUT_TICKS; 
+                                    timers[ev.f.ack] = timeout_ticks; // Uses the dynamic timeout
                                     packet_sent_this_tick = true;
                                 } else {
                                     // Sender interface is busy! Defer NAK processing to the next tick
@@ -267,7 +274,7 @@ public:
                             frame s = {data_frame, check_seq, 0, out_buffer[check_seq]};
                             channel.push_back({tick + 2, s, true});
                             print_event("re-send pkt" + to_string(check_seq), "---------->", "");
-                            timers[check_seq] = TIMEOUT_TICKS;
+                            timers[check_seq] = timeout_ticks; // Uses the dynamic timeout
                             packet_sent_this_tick = true;
                         } else {
                             // Leave timer at 0 to re-attempt sending next tick
@@ -287,7 +294,7 @@ public:
                         gbn_retransmit_queue.erase(gbn_retransmit_queue.begin());
                         channel.push_back({tick + 2, s, true});
                         print_event("re-send pkt" + to_string(s.seq), "---------->", "");
-                        timers[s.seq] = TIMEOUT_TICKS; // Start the fresh timer NOW as it hits the wire
+                        timers[s.seq] = timeout_ticks; // Start the fresh timer NOW as it hits the wire
                         packet_sent_this_tick = true;
                         break; 
                     } else {
