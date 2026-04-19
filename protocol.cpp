@@ -79,7 +79,7 @@ public:
         receiver_buffer.resize(MAX_SEQ + 1, false);
         nak_sent.resize(MAX_SEQ + 1, false);
 
-        // Drop packets 
+        // Drop packets (errors)
         packets_to_drop = {2}; 
     }
 
@@ -176,7 +176,7 @@ public:
                     if (ev.to_receiver) {
                         // RECEIVER LOGIC
                         if (ev.f.seq == frame_expected) {
-                            string r_act = "rcv pkt" + to_string(ev.f.seq) + ", deliver";
+                            string r_act = "rcv pkt" + to_string(ev.f.seq) + ", deliver pkt" +  to_string(ev.f.seq) + " ";
                             
                             if (mode == BUFFERED_PROTOCOL_5) nak_sent[frame_expected] = false; 
                             inc(frame_expected);
